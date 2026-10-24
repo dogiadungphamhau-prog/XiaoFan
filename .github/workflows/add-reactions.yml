@@ -1,0 +1,46 @@
+name: Add XiaoFan reactions
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  reactions:
+    if: startsWith(github.event.head_commit.message, 'Feature: add multi-reaction')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add reactions backend and UI
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('server.js'); s=p.read_text()
+          schema="""await pool.query(`CREATE TABLE IF NOT EXISTS post_reactions(id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,post_id BIGINT UNSIGNED NOT NULL,user_id BIGINT UNSIGNED NOT NULL,reaction VARCHAR(20) NOT NULL,created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,UNIQUE KEY uq_post_reaction(post_id,user_id),INDEX ix_reactions_post(post_id,reaction),CONSTRAINT fk_reaction_post FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE,CONSTRAINT fk_reaction_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE)`);\n"""
+          if 'CREATE TABLE IF NOT EXISTS post_reactions' not in s:
+              marker="await pool.query(`CREATE TABLE IF NOT EXISTS polls"
+              s=s.replace(marker,schema+marker,1)
+          route="""\nconst REACTIONS=['like','love','haha','wow','sad','angry'];\napp.get('/api/posts/:id/reactions',auth,async(req,res)=>{const id=Number(req.params.id);const [rows]=await pool.execute('SELECT reaction,COUNT(*) count FROM post_reactions WHERE post_id=? GROUP BY reaction',[id]);const [mine]=await pool.execute('SELECT reaction FROM post_reactions WHERE post_id=? AND user_id=?',[id,req.user.id]);const counts=Object.fromEntries(REACTIONS.map(x=>[x,0]));rows.forEach(x=>counts[x.reaction]=Number(x.count));res.json({counts,total:Object.values(counts).reduce((a,b)=>a+b,0),mine:mine[0]?.reaction||null})});\napp.post('/api/posts/:id/reactions',auth,async(req,res)=>{const id=Number(req.params.id),reaction=String(req.body.reaction||'');if(!REACTIONS.includes(reaction))return res.status(400).json({error:'Cảm xúc không hợp lệ.'});const [found]=await pool.execute('SELECT id FROM posts WHERE id=?',[id]);if(!found.length)return res.status(404).json({error:'Không tìm thấy bài viết.'});const [mine]=await pool.execute('SELECT reaction FROM post_reactions WHERE post_id=? AND user_id=?',[id,req.user.id]);if(mine.length&&mine[0].reaction===reaction)await pool.execute('DELETE FROM post_reactions WHERE post_id=? AND user_id=?',[id,req.user.id]);else await pool.execute('INSERT INTO post_reactions(post_id,user_id,reaction) VALUES(?,?,?) ON DUPLICATE KEY UPDATE reaction=VALUES(reaction),created_at=CURRENT_TIMESTAMP',[id,req.user.id,reaction]);res.json({ok:true,reaction:mine.length&&mine[0].reaction===reaction?null:reaction})});\n"""
+          if "app.get('/api/posts/:id/reactions'" not in s:
+              marker="app.post('/api/posts/:id/like'"
+              s=s.replace(marker,route+marker,1)
+          p.write_text(s)
+
+          p=Path('public/index.html'); h=p.read_text()
+          css=""".reaction-wrap{position:relative;display:inline-flex;flex:1}.reaction-main{width:100%!important}.reaction-picker{position:absolute;z-index:20;left:0;bottom:52px;display:flex;gap:5px;padding:8px;background:white;border:1px solid #dce9df;border-radius:18px;box-shadow:0 14px 35px rgba(18,59,37,.16);animation:reveal .16s ease-out}.reaction-picker button{width:42px!important;min-width:42px!important;height:42px;min-height:42px;padding:0;margin:0;border-radius:50%;font-size:21px;background:#f4fbf5;color:#183126;border:1px solid #dce9df;box-shadow:none}.reaction-picker button:hover{transform:translateY(-4px) scale(1.08);background:#e8f5e9}.reaction-summary{display:flex;align-items:center;gap:3px;margin-top:7px;font-size:13px;color:#617268}.reaction-summary span{font-size:16px}.reaction-active{background:#e8f5e9!important;color:#1b5e20!important;border-color:#a5d6a7!important}.reaction-tip{font-size:12px;color:#617268;margin-left:5px}"""
+          h=h.replace('</style>',css+'\n</style>',1) if '.reaction-wrap{' not in h else h
+          old="const actions=el('div','actions'),like=el('button',p.liked?'liked':'', (p.liked?'♥':'♡')+' Thả tym · '+p.likes),comment=el('button','secondary','💬 Bình luận · '+p.comments);like.onclick=async()=>{try{await api('/api/posts/'+p.id+'/like',{method:'POST',body:'{}'});await loadFeed()}catch(e){status(e.message)}};"
+          new="""const actions=el('div','actions'),reactionWrap=el('div','reaction-wrap'),reactionMain=el('button','secondary reaction-main','👍 Cảm xúc'),comment=el('button','secondary','💬 Bình luận · '+p.comments);const picker=el('div','reaction-picker hidden');const reactionData=[['like','👍'],['love','❤️'],['haha','😂'],['wow','😮'],['sad','😢'],['angry','😡']];const reactionNames={like:'Thích',love:'Yêu thích',haha:'Haha',wow:'Wow',sad:'Buồn',angry:'Phẫn nộ'};const summary=el('div','reaction-summary');async function refreshReactions(){try{const r=await api('/api/posts/'+p.id+'/reactions');reactionMain.textContent=(r.mine?(reactionData.find(x=>x[0]===r.mine)||['like','👍'])[1]+' '+reactionNames[r.mine]:'👍 Cảm xúc')+(r.total?' · '+r.total:'');summary.innerHTML='';reactionData.filter(x=>r.counts[x[0]]).forEach(x=>{const q=el('span','',x[1]);q.title=reactionNames[x[0]]+' · '+r.counts[x[0]];summary.append(q)});if(r.total)summary.append(el('span','reaction-tip',r.total+' cảm xúc'));picker.querySelectorAll('button').forEach(b=>b.classList.toggle('reaction-active',b.dataset.reaction===r.mine))}catch(e){}}reactionData.forEach(x=>{const b=el('button','',x[1]);b.dataset.reaction=x[0];b.title=reactionNames[x[0]];b.onclick=async()=>{try{await api('/api/posts/'+p.id+'/reactions',{method:'POST',body:JSON.stringify({reaction:x[0]})});picker.classList.add('hidden');await refreshReactions()}catch(e){status(e.message)}};picker.append(b)});reactionMain.onclick=()=>picker.classList.toggle('hidden');reactionWrap.append(reactionMain,picker);actions.append(reactionWrap,comment);refreshReactions();"""
+          if old in h: h=h.replace(old,new,1)
+          else:
+              raise SystemExit('feed reaction block not found; refusing unsafe edit')
+          h=h.replace("card.append(actions,comments);", "card.append(actions,summary,comments);")
+          p.write_text(h)
+          PY
+      - name: Commit changes
+        run: |
+          git config user.name 'XiaoFan Bot'
+          git config user.email 'actions@github.com'
+          git add server.js public/index.html
+          git commit -m 'Feature: multi-reaction UI and API'
+          git push
