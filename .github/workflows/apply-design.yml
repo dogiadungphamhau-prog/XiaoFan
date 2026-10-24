@@ -1,0 +1,53 @@
+name: Apply XiaoFan design
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  design:
+    if: startsWith(github.event.head_commit.message, 'Design:')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inject visual system
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('public/index.html')
+          s=p.read_text()
+          css=r'''\n/* XiaoFan premium visual refresh */
+:root{--green-950:#082d1a;--green-900:#0b4a2b;--green-700:#168447;--green-600:#1fa85b;--green-500:#34c56f;--green-100:#e7f8ed;--green-50:#f5fcf7;--ink:#10261b;--muted:#687a70;--line:#dcebe1;--shadow:0 18px 50px rgba(8,45,26,.09)}
+body{background:radial-gradient(circle at 8% 0,#e2f8e9 0,transparent 34%),radial-gradient(circle at 92% 5%,#dff6e7 0,transparent 30%),linear-gradient(180deg,#f6fbf7 0,#eef6f0 100%);letter-spacing:-.01em}
+body:before{content:"";position:fixed;inset:0;pointer-events:none;background-image:linear-gradient(rgba(22,132,71,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(22,132,71,.025) 1px,transparent 1px);background-size:28px 28px;mask-image:linear-gradient(to bottom,black,transparent 80%)}
+header{height:72px;display:flex;align-items:center;padding:0 clamp(18px,3vw,44px);background:rgba(8,45,26,.9);backdrop-filter:blur(18px);border-bottom:1px solid rgba(255,255,255,.12);box-shadow:0 12px 35px rgba(8,45,26,.16)}
+header:before{content:"";width:34px;height:34px;border-radius:12px;margin-right:12px;background:linear-gradient(135deg,#7bf3a4,#1fa85b);box-shadow:0 0 0 5px rgba(123,243,164,.12)}
+header:after{height:2px;background:linear-gradient(90deg,transparent,#68e998,transparent)}
+.layout{grid-template-columns:minmax(250px,300px) minmax(0,1fr);gap:24px;padding:26px clamp(12px,3vw,44px);max-width:1800px;margin:0 auto}
+.sidebar{top:94px}.sidebar .panel{background:rgba(255,255,255,.82);backdrop-filter:blur(18px);border-color:rgba(220,235,225,.9);box-shadow:0 16px 45px rgba(8,45,26,.08)}
+.panel{background:rgba(255,255,255,.9);backdrop-filter:blur(18px);border:1px solid rgba(220,235,225,.9);border-radius:24px;padding:22px;box-shadow:var(--shadow);margin-bottom:18px}.panel:hover{border-color:#b9dfc4;box-shadow:0 22px 60px rgba(8,45,26,.12);transform:translateY(-1px)}
+button{background:linear-gradient(135deg,var(--green-600),var(--green-700));border-radius:14px;box-shadow:0 8px 18px rgba(31,168,91,.18);min-height:46px}button:hover{background:linear-gradient(135deg,var(--green-500),var(--green-700));transform:translateY(-2px);box-shadow:0 12px 24px rgba(31,168,91,.24)}.secondary{background:#eff9f2;color:var(--green-900);border-color:#d4ead9;box-shadow:none}.secondary:hover{background:#e2f5e7}
+input,textarea,select{border-radius:14px;border-color:#d9e9de;background:rgba(250,253,251,.9);padding:13px 15px}input:focus,textarea:focus,select:focus{border-color:var(--green-500);box-shadow:0 0 0 4px rgba(52,197,111,.13)}
+.tabs{background:#eef8f1;padding:5px;border-radius:15px}.tabs button{margin:0}.storyrow{padding:12px 2px 14px;gap:16px}.story{background:rgba(245,252,247,.7);border:1px solid transparent}.story:hover{border-color:#c9e7d1}.story img{width:84px;height:84px;border:3px solid #38c76f;box-shadow:0 7px 18px rgba(31,168,91,.18)}
+.postimg{max-height:620px;border-radius:18px;box-shadow:0 10px 28px rgba(8,45,26,.08)}.posthead{font-size:16px}.actions button{border-radius:13px}.liked{background:#fff0f1;color:#b4232d;border-color:#ffd4d8}
+.composer{position:relative;overflow:hidden}.composer:before{content:"";position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg,#1fa85b,#72e89b,#1fa85b);opacity:.8}.poll-option-result{background:linear-gradient(180deg,#fbfefc,#f3faf5);border-color:#d9ebde;border-radius:15px}.poll-bar{background:#e4f1e7;height:8px}.poll-bar span{background:linear-gradient(90deg,#1fa85b,#61df8d)}
+.users button{border-radius:13px;background:#f7fbf8}.users button:hover{background:#e8f6eb}.chat{background:linear-gradient(180deg,#f7fcf8,#eef8f1);border:1px solid #dcebe1;border-radius:20px;padding:14px}.msg{border:1px solid #dbece0;background:white;box-shadow:0 4px 12px rgba(8,45,26,.05)}.mine{background:linear-gradient(135deg,#1fa85b,#14773e);border:0;box-shadow:0 7px 18px rgba(20,119,62,.18)}
+#profilePanel>div:first-child{background:linear-gradient(135deg,#edf9f0,#fff);border-radius:20px;padding:22px}#profileAvatar{box-shadow:0 0 0 5px rgba(52,197,111,.12),0 12px 25px rgba(31,168,91,.18)!important}
+#settingsPanel h2,#profilePanel h2{letter-spacing:-.04em;font-size:28px}.tag-chip{background:#eaf8ee!important;color:#126338!important;border-color:#d1ead8!important}.tag-chip:hover{background:#d9f2e1!important}
+#storyViewer{backdrop-filter:blur(14px);background:rgba(5,18,11,.9)!important}#storyViewer img{box-shadow:0 24px 80px rgba(0,0,0,.45)}
+.auth{background:rgba(255,255,255,.92);box-shadow:0 30px 90px rgba(8,45,26,.15);border-radius:28px;padding:30px}.auth h2{font-size:30px;letter-spacing:-.04em}
+@media(max-width:820px){.layout{padding:14px 10px;gap:12px}.panel{border-radius:18px;padding:16px}.sidebar{top:0}.sidebar .panel{backdrop-filter:none}}
+'''
+          if '/* XiaoFan premium visual refresh */' not in s:
+              s=s.replace('</style>',css+'\n</style>',1)
+              p.write_text(s)
+          PY
+      - name: Commit design
+        run: |
+          git config user.name 'XiaoFan Bot'
+          git config user.email 'actions@github.com'
+          git add public/index.html
+          git diff --cached --quiet || git commit -m 'Design: premium XiaoFan interface'
+          git push
