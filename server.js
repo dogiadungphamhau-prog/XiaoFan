@@ -34,7 +34,20 @@ const publicUser=u=>({id:Number(u.id),username:u.username,displayName:u.display_
 const imageOk=s=>typeof s==='string'&&/^data:image\/(jpeg|png|webp|gif);base64,/.test(s)&&s.length<=6_500_000;
 app.get('/api/health',async(_q,res)=>{try{await pool.query('SELECT 1');res.json({ok:true,database:'mysql',features:['posts','stories','likes','comments','chat']})}catch{res.status(503).json({ok:false,error:'database_unavailable'})}});
 app.post('/api/register',async(req,res)=>{const username=String(req.body.username||'').trim().toLowerCase(),password=String(req.body.password||''),displayName=String(req.body.displayName||req.body.username||'').trim().slice(0,100);if(!/^[a-z0-9_.-]{3,64}$/.test(username)||password.length<8)return res.status(400).json({error:'Tên đăng nhập 3–64 ký tự; mật khẩu tối thiểu 8 ký tự.'});try{const hash=await bcrypt.hash(password,12),[r]=await pool.execute('INSERT INTO users(username,password_hash,display_name) VALUES(?,?,?)',[username,hash,displayName||username]);const user={id:r.insertId,username,display_name:displayName||username};res.status(201).json({user:publicUser(user),token:jwt.sign({id:user.id,username},secret,{expiresIn:'30d'})})}catch(e){res.status(e.code==='ER_DUP_ENTRY'?409:500).json({error:e.code==='ER_DUP_ENTRY'?'Tên đăng nhập đã tồn tại.':'Không thể tạo tài khoản.'})}});
-app.post('/api/login',async(req,res)=>{const username=String(req.body.username||'').trim().toLowerCase(),[rows]=await pool.execute('SELECT * FROM users WHERE username=? LIMIT 1',[username]);if(!rows.length||!(await bcrypt.compare(String(req.body.password||''),rows[0].password_hash)))return res.status(401).json({error:'Sai tên đăng nhập hoặc mật khẩu.'});const u=rows[0];res.json({user:publicUser(u),token:jwt.sign({id:u.id,username:u.username},secret,{expiresIn:'30d'})})});
+app.post('/api/login',async(req,res)=>{
+const username=String(req.body.username||'').trim().toLowerCase(),password=String(req.body.password||'');
+if(!username||!password)return res.status(400).json({error:'Vui lòng nhập tên đăng nhập và mật khẩu.'});
+try{
+let rows, lastError;
+for(let attempt=0;attempt<3;attempt++){
+try{[rows]=await pool.execute('SELECT * FROM users WHERE username=? LIMIT 1',[username]);lastError=null;break}
+catch(e){lastError=e;if(!['ECONNREFUSED','ETIMEDOUT','PROTOCOL_CONNECTION_LOST','EHOSTUNREACH'].includes(e.code)||attempt===2)break;await new Promise(resolve=>setTimeout(resolve,1200*(attempt+1)))}
+}
+if(lastError){console.error('Login database unavailable:',lastError.code||lastError.message);return res.status(503).json({error:'Cơ sở dữ liệu đang khởi động hoặc tạm ngắt kết nối. Vui lòng thử đăng nhập lại sau vài giây.'})}
+if(!rows.length||!(await bcrypt.compare(password,rows[0].password_hash)))return res.status(401).json({error:'Sai tên đăng nhập hoặc mật khẩu.'});
+const u=rows[0];res.json({user:publicUser(u),token:jwt.sign({id:u.id,username:u.username},secret,{expiresIn:'30d'})})
+}catch(e){console.error('Login failed:',e.code||e.message);res.status(500).json({error:'Không thể đăng nhập lúc này. Vui lòng thử lại.'})}
+});
 app.get('/api/profile',auth,async(req,res)=>{const [rows]=await pool.execute('SELECT id,username,display_name,created_at FROM users WHERE id=? LIMIT 1',[req.user.id]);if(!rows.length)return res.status(404).json({error:'Không tìm thấy hồ sơ.'});const u=rows[0];const [[stats]]=await pool.execute('SELECT (SELECT COUNT(*) FROM posts WHERE user_id=?) posts,(SELECT COUNT(*) FROM stories WHERE user_id=? AND expires_at>NOW()) stories FROM DUAL',[req.user.id,req.user.id]);res.json({user:publicUser(u),createdAt:u.created_at,posts:Number(stats.posts),stories:Number(stats.stories)})});
 app.patch('/api/profile',auth,async(req,res)=>{const displayName=String(req.body.displayName||'').trim().slice(0,100);if(!displayName)return res.status(400).json({error:'Tên hiển thị không được để trống.'});await pool.execute('UPDATE users SET display_name=? WHERE id=?',[displayName,req.user.id]);res.json({ok:true,displayName})});
 app.get('/api/users',auth,async(req,res)=>{const [rows]=await pool.execute('SELECT id,username,display_name FROM users WHERE id<>? ORDER BY username LIMIT 200',[req.user.id]);res.json(rows.map(publicUser))});
