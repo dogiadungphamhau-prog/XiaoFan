@@ -14,6 +14,7 @@ const io=new Server(server,{cors:{origin:process.env.CORS_ORIGIN||'*'}});
 app.use(helmet({contentSecurityPolicy:false}));app.use(cors());app.use(express.json({limit:'8mb'}));app.use(express.static(path.join(dir,'public')));
 const secret=process.env.JWT_SECRET;if(!secret){console.error('JWT_SECRET is required');process.exit(1)}
 const pool=mysql.createPool({host:process.env.MYSQLHOST||process.env.MYSQL_HOST,port:Number(process.env.MYSQLPORT||process.env.MYSQL_PORT||3306),user:process.env.MYSQLUSER||process.env.MYSQL_USER,password:process.env.MYSQLPASSWORD||process.env.MYSQL_PASSWORD,database:process.env.MYSQLDATABASE||process.env.MYSQL_DATABASE,waitForConnections:true,connectionLimit:10,queueLimit:0});
+async function initializeDatabase(){
 await pool.query(`CREATE TABLE IF NOT EXISTS users(id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,username VARCHAR(64) NOT NULL UNIQUE,password_hash VARCHAR(255) NOT NULL,display_name VARCHAR(100) NOT NULL,created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)`);
 await pool.query(`CREATE TABLE IF NOT EXISTS messages(id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,sender_id BIGINT UNSIGNED NOT NULL,recipient_id BIGINT UNSIGNED NOT NULL,body TEXT NOT NULL,created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,INDEX ix_sender_recipient(sender_id,recipient_id,id),INDEX ix_recipient_sender(recipient_id,sender_id,id),CONSTRAINT fk_sender FOREIGN KEY(sender_id) REFERENCES users(id),CONSTRAINT fk_recipient FOREIGN KEY(recipient_id) REFERENCES users(id))`);
 await pool.query(`CREATE TABLE IF NOT EXISTS posts(id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,user_id BIGINT UNSIGNED NOT NULL,caption VARCHAR(2000) NOT NULL DEFAULT '',image_data MEDIUMTEXT NOT NULL,created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,INDEX ix_posts_created(created_at),INDEX ix_posts_user(user_id,id),CONSTRAINT fk_posts_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE)`);
@@ -21,6 +22,13 @@ await pool.query(`CREATE TABLE IF NOT EXISTS stories(id BIGINT UNSIGNED NOT NULL
 await pool.query('ALTER TABLE posts MODIFY image_data MEDIUMTEXT NULL');
 await pool.query(`CREATE TABLE IF NOT EXISTS post_likes(id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,post_id BIGINT UNSIGNED NOT NULL,user_id BIGINT UNSIGNED NOT NULL,created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,UNIQUE KEY uq_post_like(post_id,user_id),CONSTRAINT fk_likes_post FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE,CONSTRAINT fk_likes_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE)`);
 await pool.query(`CREATE TABLE IF NOT EXISTS post_comments(id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,post_id BIGINT UNSIGNED NOT NULL,user_id BIGINT UNSIGNED NOT NULL,body VARCHAR(1000) NOT NULL,created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,INDEX ix_comments_post(post_id,id),CONSTRAINT fk_comments_post FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE,CONSTRAINT fk_comments_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE)`);
+}
+let databaseReady=false;
+async function connectDatabase(){
+try { await initializeDatabase(); databaseReady=true; console.log('MySQL ready'); }
+catch(e){ databaseReady=false; console.error('MySQL unavailable; will retry:',e.code||e.message); setTimeout(connectDatabase,10000); }
+}
+connectDatabase();
 const auth=(req,res,next)=>{try{req.user=jwt.verify((req.headers.authorization||'').replace(/^Bearer\s+/i,''),secret);next()}catch{res.status(401).json({error:'Vui lòng đăng nhập lại.'})}};
 const publicUser=u=>({id:Number(u.id),username:u.username,displayName:u.display_name});
 const imageOk=s=>typeof s==='string'&&/^data:image\/(jpeg|png|webp|gif);base64,/.test(s)&&s.length<=6_500_000;
