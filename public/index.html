@@ -27,6 +27,42 @@ async function loadUsers(){const users=await api('/api/users');$('users').innerH
 async function choose(u){selected=u;showMain('chatPanel');$('chatTitle').textContent='Nhắn tin với '+u.displayName;await loadMessages()}
 async function loadMessages(){if(!selected)return;const ms=await api('/api/messages/'+selected.id);$('chat').innerHTML='';ms.forEach(m=>$('chat').append(el('div','msg'+(Number(m.sender_id)===Number(me.id)?' mine':''),m.body)));$('chat').scrollTop=$('chat').scrollHeight}
 async function start(){appView();socket?.disconnect();socket=io({auth:{token}});socket.on('message',m=>{if(selected&&(Number(m.sender_id)===Number(selected.id)||Number(m.recipient_id)===Number(selected.id)))loadMessages().catch(()=>{})});await Promise.all([loadStories(),loadFeed(),loadUsers()]);showMain('feed')}
+
+const translations={
+vi:{feed:'🏠 Bảng tin',profile:'👤 Trang cá nhân',settings:'⚙ Cài đặt / Ngôn ngữ',chat:'Tin nhắn',refresh:'Làm mới',logout:'Đăng xuất',contacts:'Danh bạ',stories:'Story · biến mất sau 24 giờ',storyCaption:'Thêm chú thích cho Story (tuỳ chọn)',postTitle:'Chia sẻ bài viết',caption:'Bạn đang nghĩ gì? Có thể đăng bài chữ hoặc kèm ảnh...',imageLabel:'Thêm ảnh (không bắt buộc)',postButton:'＋ Đăng bài',storyButton:'＋ Đăng Story',settingsTitle:'Cài đặt',languageLabel:'Ngôn ngữ / Language / 语言',languageHint:'Ngôn ngữ được lưu trên thiết bị này.',displayName:'Tên hiển thị',save:'Lưu thay đổi',profilePosts:'Bài viết của tôi',login:'Đăng nhập',username:'Tên đăng nhập',password:'Mật khẩu (ít nhất 8 ký tự)',register:'Chưa có tài khoản? Đăng ký',send:'Gửi',message:'Nhập tin nhắn...',thinking:'Chưa có bài viết. Hãy đăng bài đầu tiên!',doubleClick:'Nhấp đúp để xem các mục bên trong',feedDetails:'Bảng tin · Bài viết mới · Thả tim · Bình luận',profileDetails:'Trang cá nhân · Bài viết của bạn · Chỉnh sửa tên hiển thị',settingsDetails:'Cài đặt · Ngôn ngữ · Tên hiển thị',chatDetails:'Tin nhắn · Chọn người trong danh bạ · Gửi tin nhắn',refreshDetails:'Làm mới · Tải lại bài viết, Story và danh bạ',logoutDetails:'Đăng xuất khỏi tài khoản hiện tại'},
+en:{feed:'🏠 Feed',profile:'👤 My profile',settings:'⚙ Settings / Language',chat:'Messages',refresh:'Refresh',logout:'Log out',contacts:'Contacts',stories:'Stories · disappear after 24 hours',storyCaption:'Add a Story caption (optional)',postTitle:'Create a post',caption:'What’s on your mind? Text or photo posts are supported…',imageLabel:'Add photo (optional)',postButton:'＋ Publish post',storyButton:'＋ Publish Story',settingsTitle:'Settings',languageLabel:'Language / 语言 / Ngôn ngữ',languageHint:'Your language choice is saved on this device.',displayName:'Display name',save:'Save changes',profilePosts:'My posts',login:'Sign in',username:'Username',password:'Password (at least 8 characters)',register:'New here? Create an account',send:'Send',message:'Type a message…',thinking:'No posts yet. Be the first to share!',doubleClick:'Double-click to reveal inner options',feedDetails:'Feed · Recent posts · Likes · Comments',profileDetails:'Profile · Your posts · Edit display name',settingsDetails:'Settings · Language · Display name',chatDetails:'Messages · Choose a contact · Send messages',refreshDetails:'Refresh · Reload posts, Stories and contacts',logoutDetails:'Sign out of the current account'},
+zh:{feed:'🏠 动态',profile:'👤 个人主页',settings:'⚙ 设置 / 语言',chat:'消息',refresh:'刷新',logout:'退出登录',contacts:'联系人',stories:'快拍 · 24 小时后消失',storyCaption:'添加快拍说明（可选）',postTitle:'发布动态',caption:'此刻在想什么？可以发布文字或图片…',imageLabel:'添加图片（可选）',postButton:'＋ 发布动态',storyButton:'＋ 发布快拍',settingsTitle:'设置',languageLabel:'语言 / Language / Ngôn ngữ',languageHint:'语言选择保存在此设备上。',displayName:'显示名称',save:'保存更改',profilePosts:'我的动态',login:'登录',username:'用户名',password:'密码（至少 8 个字符）',register:'还没有账号？注册',send:'发送',message:'输入消息…',thinking:'还没有动态，来分享第一条吧！',doubleClick:'双击以显示内部选项',feedDetails:'动态 · 最新帖子 · 点赞 · 评论',profileDetails:'个人主页 · 我的帖子 · 编辑显示名称',settingsDetails:'设置 · 语言 · 显示名称',chatDetails:'消息 · 选择联系人 · 发送消息',refreshDetails:'刷新 · 重新加载动态、快拍和联系人',logoutDetails:'退出当前账号'}
+};
+function applyLanguage(lang=localStorage.getItem('xf_lang')||'vi'){
+ const t=translations[lang]||translations.vi;localStorage.setItem('xf_lang',lang);document.documentElement.lang=lang;
+ const set=(id,key)=>{if($(id))$(id).textContent=t[key]};
+ set('showFeed','feed');set('showProfile','profile');set('showSettings','settings');set('showChat','chat');set('refresh','refresh');set('logout','logout');
+ const text=(selector,key)=>{const n=document.querySelector(selector);if(n)n.textContent=t[key]};
+ text('#storiesPanel > b','stories');text('.composer > b','postTitle');text('#settingsPanel h2','settingsTitle');text('#profilePanel h3','profilePosts');
+ text('label[for="languageSelect"]','languageLabel');text('#settingsPanel .muted','languageHint');text('label[for="postImage"]','imageLabel');
+ if($('caption'))$('caption').placeholder=t.caption;if($('storyCaption'))$('storyCaption').placeholder=t.storyCaption;if($('message'))$('message').placeholder=t.message;
+ if($('username'))$('username').placeholder=t.username;if($('password'))$('password').placeholder=t.password;if($('profileDisplayName'))$('profileDisplayName').placeholder=t.displayName;
+ if($('saveProfile'))$('saveProfile').textContent=t.save;if($('sendForm')?.querySelector('button'))$('sendForm').querySelector('button').textContent=t.send;
+ const pf=$('postForm')?.querySelector('button');if(pf)pf.textContent=t.postButton;const sf=$('storyForm')?.querySelector('button');if(sf)sf.textContent=t.storyButton;
+ if($('authTitle')&&!register)$('authTitle').textContent=t.login;if($('authSubmit')&&!register)$('authSubmit').textContent=t.login;
+ if($('toggleAuth')&&!register)$('toggleAuth').textContent=t.register;
+ document.querySelectorAll('.expand-details').forEach(n=>{const key=n.dataset.translationKey;if(key&&t[key])n.textContent=t[key]});
+}
+$('languageSelect').onchange=()=>applyLanguage($('languageSelect').value);
+$('showFeed').addEventListener('dblclick',()=>{});
+document.addEventListener('dblclick',e=>{
+ const item=e.target.closest('.sidebar button,.sidebar #me,.sidebar b,.panel h2,.panel h3,.posthead');
+ if(!item||item.closest('.expand-details'))return;
+ const key=item.id==='showFeed'?'feedDetails':item.id==='showProfile'?'profileDetails':item.id==='showSettings'?'settingsDetails':item.id==='showChat'?'chatDetails':item.id==='refresh'?'refreshDetails':item.id==='logout'?'logoutDetails':null;
+ if(!key)return;
+ const next=item.nextElementSibling;
+ if(next?.classList.contains('expand-details')){next.remove();item.setAttribute('aria-expanded','false');return}
+ document.querySelectorAll('.expand-details').forEach(n=>n.remove());
+ const box=document.createElement('div');box.className='expand-details';box.dataset.translationKey=key;box.textContent=(translations[localStorage.getItem('xf_lang')||'vi']||translations.vi)[key];box.setAttribute('role','region');item.insertAdjacentElement('afterend',box);item.setAttribute('aria-expanded','true');
+});
+$('languageSelect').value=localStorage.getItem('xf_lang')||'vi';
+applyLanguage($('languageSelect').value);
+
 $('postForm').onsubmit=async e=>{e.preventDefault();try{const caption=$('caption').value.trim();const file=$('postImage').files[0];if(!caption&&!file)throw Error('Hãy nhập nội dung hoặc chọn ảnh.');const image=file?await readImage(file):null;await api('/api/posts',{method:'POST',body:JSON.stringify({caption,image})});$('caption').value='';$('postImage').value='';await loadFeed();status('Đã đăng bài!')}catch(e){status(e.message)}};
 $('storyForm').onsubmit=async e=>{e.preventDefault();try{const image=await readImage($('storyImage').files[0]);await api('/api/stories',{method:'POST',body:JSON.stringify({caption:$('storyCaption').value,image})});$('storyCaption').value='';$('storyImage').value='';await loadStories();status('Đã đăng Story. Story sẽ tự hết hạn sau 24 giờ.')}catch(e){status(e.message)}};
 $('sendForm').onsubmit=async e=>{e.preventDefault();if(!selected)return;try{await api('/api/messages/'+selected.id,{method:'POST',body:JSON.stringify({body:$('message').value})});$('message').value='';await loadMessages()}catch(e){status(e.message)}};
