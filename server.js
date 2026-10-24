@@ -9,55 +9,32 @@ import jwt from 'jsonwebtoken';
 import mysql from 'mysql2/promise';
 import { Server } from 'socket.io';
 
-const dir = path.dirname(fileURLToPath(import.meta.url));
-const app = express();
-const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: process.env.CORS_ORIGIN || '*'} });
-app.use(helmet({contentSecurityPolicy:false}));
-app.use(cors());
-app.use(express.json({limit:'1mb'}));
-app.use(express.static(path.join(dir,'public')));
-const secret = process.env.JWT_SECRET;
-if (!secret) { console.error('JWT_SECRET is required'); process.exit(1); }
-const pool = mysql.createPool({
- host:process.env.MYSQLHOST || process.env.MYSQL_HOST,
- port:Number(process.env.MYSQLPORT || process.env.MYSQL_PORT || 3306),
- user:process.env.MYSQLUSER || process.env.MYSQL_USER,
- password:process.env.MYSQLPASSWORD || process.env.MYSQL_PASSWORD,
- database:process.env.MYSQLDATABASE || process.env.MYSQL_DATABASE,
- waitForConnections:true, connectionLimit:10, queueLimit:0
-});
-await pool.query(`CREATE TABLE IF NOT EXISTS users (
- id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
- username VARCHAR(64) NOT NULL UNIQUE,
- password_hash VARCHAR(255) NOT NULL,
- display_name VARCHAR(100) NOT NULL,
- created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-)`);
-await pool.query(`CREATE TABLE IF NOT EXISTS messages (
- id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
- sender_id BIGINT UNSIGNED NOT NULL,
- recipient_id BIGINT UNSIGNED NOT NULL,
- body TEXT NOT NULL,
- created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
- INDEX ix_sender_recipient (sender_id,recipient_id,id),
- INDEX ix_recipient_sender (recipient_id,sender_id,id),
- CONSTRAINT fk_sender FOREIGN KEY(sender_id) REFERENCES users(id),
- CONSTRAINT fk_recipient FOREIGN KEY(recipient_id) REFERENCES users(id)
-)`);
+const dir=path.dirname(fileURLToPath(import.meta.url)),app=express(),server=http.createServer(app);
+const io=new Server(server,{cors:{origin:process.env.CORS_ORIGIN||'*'}});
+app.use(helmet({contentSecurityPolicy:false}));app.use(cors());app.use(express.json({limit:'8mb'}));app.use(express.static(path.join(dir,'public')));
+const secret=process.env.JWT_SECRET;if(!secret){console.error('JWT_SECRET is required');process.exit(1)}
+const pool=mysql.createPool({host:process.env.MYSQLHOST||process.env.MYSQL_HOST,port:Number(process.env.MYSQLPORT||process.env.MYSQL_PORT||3306),user:process.env.MYSQLUSER||process.env.MYSQL_USER,password:process.env.MYSQLPASSWORD||process.env.MYSQL_PASSWORD,database:process.env.MYSQLDATABASE||process.env.MYSQL_DATABASE,waitForConnections:true,connectionLimit:10,queueLimit:0});
+await pool.query(`CREATE TABLE IF NOT EXISTS users(id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,username VARCHAR(64) NOT NULL UNIQUE,password_hash VARCHAR(255) NOT NULL,display_name VARCHAR(100) NOT NULL,created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)`);
+await pool.query(`CREATE TABLE IF NOT EXISTS messages(id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,sender_id BIGINT UNSIGNED NOT NULL,recipient_id BIGINT UNSIGNED NOT NULL,body TEXT NOT NULL,created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,INDEX ix_sender_recipient(sender_id,recipient_id,id),INDEX ix_recipient_sender(recipient_id,sender_id,id),CONSTRAINT fk_sender FOREIGN KEY(sender_id) REFERENCES users(id),CONSTRAINT fk_recipient FOREIGN KEY(recipient_id) REFERENCES users(id))`);
+await pool.query(`CREATE TABLE IF NOT EXISTS posts(id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,user_id BIGINT UNSIGNED NOT NULL,caption VARCHAR(2000) NOT NULL DEFAULT '',image_data MEDIUMTEXT NOT NULL,created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,INDEX ix_posts_created(created_at),INDEX ix_posts_user(user_id,id),CONSTRAINT fk_posts_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE)`);
+await pool.query(`CREATE TABLE IF NOT EXISTS stories(id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,user_id BIGINT UNSIGNED NOT NULL,caption VARCHAR(500) NOT NULL DEFAULT '',image_data MEDIUMTEXT NOT NULL,created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,expires_at TIMESTAMP NOT NULL,INDEX ix_stories_expires(expires_at),CONSTRAINT fk_stories_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE)`);
+await pool.query(`CREATE TABLE IF NOT EXISTS post_likes(id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,post_id BIGINT UNSIGNED NOT NULL,user_id BIGINT UNSIGNED NOT NULL,created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,UNIQUE KEY uq_post_like(post_id,user_id),CONSTRAINT fk_likes_post FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE,CONSTRAINT fk_likes_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE)`);
+await pool.query(`CREATE TABLE IF NOT EXISTS post_comments(id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,post_id BIGINT UNSIGNED NOT NULL,user_id BIGINT UNSIGNED NOT NULL,body VARCHAR(1000) NOT NULL,created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,INDEX ix_comments_post(post_id,id),CONSTRAINT fk_comments_post FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE,CONSTRAINT fk_comments_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE)`);
 const auth=(req,res,next)=>{try{req.user=jwt.verify((req.headers.authorization||'').replace(/^Bearer\\s+/i,''),secret);next()}catch{res.status(401).json({error:'Vui lòng đăng nhập lại.'})}};
 const publicUser=u=>({id:Number(u.id),username:u.username,displayName:u.display_name});
-app.get('/api/health',async(_req,res)=>{try{await pool.query('SELECT 1');res.json({ok:true,database:'mysql'})}catch{res.status(503).json({ok:false,error:'database_unavailable'})}});
-app.post('/api/register',async(req,res)=>{
- const username=String(req.body.username||'').trim().toLowerCase(), password=String(req.body.password||''), displayName=String(req.body.displayName||req.body.username||'').trim().slice(0,100);
- if(!/^[a-z0-9_.-]{3,64}$/.test(username)||password.length<8)return res.status(400).json({error:'Tên đăng nhập 3–64 ký tự (a-z, 0-9, . _ -); mật khẩu tối thiểu 8 ký tự.'});
- try{const hash=await bcrypt.hash(password,12);const [r]=await pool.execute('INSERT INTO users(username,password_hash,display_name) VALUES(?,?,?)',[username,hash,displayName||username]);const user={id:r.insertId,username,display_name:displayName||username};res.status(201).json({user:publicUser(user),token:jwt.sign({id:user.id,username},secret,{expiresIn:'30d'})})}catch(e){res.status(e.code==='ER_DUP_ENTRY'?409:500).json({error:e.code==='ER_DUP_ENTRY'?'Tên đăng nhập đã tồn tại.':'Không thể tạo tài khoản.'})}
-});
-app.post('/api/login',async(req,res)=>{const username=String(req.body.username||'').trim().toLowerCase();const [rows]=await pool.execute('SELECT * FROM users WHERE username=? LIMIT 1',[username]);if(!rows.length||!(await bcrypt.compare(String(req.body.password||''),rows[0].password_hash)))return res.status(401).json({error:'Sai tên đăng nhập hoặc mật khẩu.'});const u=rows[0];res.json({user:publicUser(u),token:jwt.sign({id:u.id,username:u.username},secret,{expiresIn:'30d'})})});
+const imageOk=s=>typeof s==='string'&&/^data:image\/(jpeg|png|webp|gif);base64,/.test(s)&&s.length<=6_500_000;
+app.get('/api/health',async(_q,res)=>{try{await pool.query('SELECT 1');res.json({ok:true,database:'mysql',features:['posts','stories','likes','comments','chat']})}catch{res.status(503).json({ok:false,error:'database_unavailable'})}});
+app.post('/api/register',async(req,res)=>{const username=String(req.body.username||'').trim().toLowerCase(),password=String(req.body.password||''),displayName=String(req.body.displayName||req.body.username||'').trim().slice(0,100);if(!/^[a-z0-9_.-]{3,64}$/.test(username)||password.length<8)return res.status(400).json({error:'Tên đăng nhập 3–64 ký tự; mật khẩu tối thiểu 8 ký tự.'});try{const hash=await bcrypt.hash(password,12),[r]=await pool.execute('INSERT INTO users(username,password_hash,display_name) VALUES(?,?,?)',[username,hash,displayName||username]);const user={id:r.insertId,username,display_name:displayName||username};res.status(201).json({user:publicUser(user),token:jwt.sign({id:user.id,username},secret,{expiresIn:'30d'})})}catch(e){res.status(e.code==='ER_DUP_ENTRY'?409:500).json({error:e.code==='ER_DUP_ENTRY'?'Tên đăng nhập đã tồn tại.':'Không thể tạo tài khoản.'})}});
+app.post('/api/login',async(req,res)=>{const username=String(req.body.username||'').trim().toLowerCase(),[rows]=await pool.execute('SELECT * FROM users WHERE username=? LIMIT 1',[username]);if(!rows.length||!(await bcrypt.compare(String(req.body.password||''),rows[0].password_hash)))return res.status(401).json({error:'Sai tên đăng nhập hoặc mật khẩu.'});const u=rows[0];res.json({user:publicUser(u),token:jwt.sign({id:u.id,username:u.username},secret,{expiresIn:'30d'})})});
 app.get('/api/users',auth,async(req,res)=>{const [rows]=await pool.execute('SELECT id,username,display_name FROM users WHERE id<>? ORDER BY username LIMIT 200',[req.user.id]);res.json(rows.map(publicUser))});
-app.get('/api/messages/:userId',auth,async(req,res)=>{const other=Number(req.params.userId);const [rows]=await pool.execute(`SELECT id,sender_id,recipient_id,body,created_at FROM messages WHERE (sender_id=? AND recipient_id=?) OR (sender_id=? AND recipient_id=?) ORDER BY id DESC LIMIT 200`,[req.user.id,other,other,req.user.id]);res.json(rows.reverse())});
-app.post('/api/messages/:userId',auth,async(req,res)=>{const recipient=Number(req.params.userId),body=String(req.body.body||'').trim();if(!Number.isSafeInteger(recipient)||recipient<1||!body||body.length>5000)return res.status(400).json({error:'Tin nhắn không hợp lệ.'});if(recipient===Number(req.user.id))return res.status(400).json({error:'Không thể nhắn cho chính mình.'});const [users]=await pool.execute('SELECT id FROM users WHERE id=?',[recipient]);if(!users.length)return res.status(404).json({error:'Không tìm thấy người dùng.'});const [r]=await pool.execute('INSERT INTO messages(sender_id,recipient_id,body) VALUES(?,?,?)',[req.user.id,recipient,body]);const [rows]=await pool.execute('SELECT id,sender_id,recipient_id,body,created_at FROM messages WHERE id=?',[r.insertId]);const m=rows[0];io.to('user:'+recipient).emit('message',m);io.to('user:'+req.user.id).emit('message',m);res.status(201).json(m)});
-io.use((s,next)=>{try{s.user=jwt.verify(s.handshake.auth?.token||'',secret);next()}catch{next(new Error('Unauthorized'))}});
-io.on('connection',s=>s.join('user:'+s.user.id));
-app.use((err,_req,res,_next)=>{console.error(err);res.status(500).json({error:'Lỗi máy chủ.'})});
-server.listen(Number(process.env.PORT||3000),'0.0.0.0',()=>console.log('XiaoFan listening'));
+app.get('/api/messages/:userId',auth,async(req,res)=>{const other=Number(req.params.userId),[rows]=await pool.execute('SELECT id,sender_id,recipient_id,body,created_at FROM messages WHERE(sender_id=? AND recipient_id=?) OR(sender_id=? AND recipient_id=?) ORDER BY id DESC LIMIT 200',[req.user.id,other,other,req.user.id]);res.json(rows.reverse())});
+app.post('/api/messages/:userId',auth,async(req,res)=>{const recipient=Number(req.params.userId),body=String(req.body.body||'').trim();if(!Number.isSafeInteger(recipient)||recipient<1||!body||body.length>5000)return res.status(400).json({error:'Tin nhắn không hợp lệ.'});if(recipient===Number(req.user.id))return res.status(400).json({error:'Không thể nhắn cho chính mình.'});const [users]=await pool.execute('SELECT id FROM users WHERE id=?',[recipient]);if(!users.length)return res.status(404).json({error:'Không tìm thấy người dùng.'});const [r]=await pool.execute('INSERT INTO messages(sender_id,recipient_id,body) VALUES(?,?,?)',[req.user.id,recipient,body]),[rows]=await pool.execute('SELECT id,sender_id,recipient_id,body,created_at FROM messages WHERE id=?',[r.insertId]),m=rows[0];io.to('user:'+recipient).emit('message',m);io.to('user:'+req.user.id).emit('message',m);res.status(201).json(m)});
+app.get('/api/posts',auth,async(req,res)=>{const [rows]=await pool.execute(`SELECT p.id,p.user_id,p.caption,p.image_data,p.created_at,u.username,u.display_name,(SELECT COUNT(*) FROM post_likes l WHERE l.post_id=p.id) likes,(SELECT COUNT(*) FROM post_comments c WHERE c.post_id=p.id) comments,(SELECT COUNT(*) FROM post_likes l WHERE l.post_id=p.id AND l.user_id=?) liked FROM posts p JOIN users u ON u.id=p.user_id ORDER BY p.id DESC LIMIT 100`,[req.user.id]);res.json(rows.map(p=>({...p,user:publicUser({id:p.user_id,username:p.username,display_name:p.display_name}),likes:Number(p.likes),comments:Number(p.comments),liked:!!p.liked})))});
+app.post('/api/posts',auth,async(req,res)=>{const caption=String(req.body.caption||'').trim().slice(0,2000),image=req.body.image;if(!imageOk(image))return res.status(400).json({error:'Ảnh không hợp lệ. Hãy dùng JPG, PNG, WEBP hoặc GIF dưới khoảng 4 MB.'});const [r]=await pool.execute('INSERT INTO posts(user_id,caption,image_data) VALUES(?,?,?)',[req.user.id,caption,image]);res.status(201).json({id:r.insertId,caption})});
+app.get('/api/stories',auth,async(_req,res)=>{await pool.execute('DELETE FROM stories WHERE expires_at<=NOW()');const [rows]=await pool.query('SELECT s.id,s.user_id,s.caption,s.image_data,s.created_at,s.expires_at,u.username,u.display_name FROM stories s JOIN users u ON u.id=s.user_id WHERE s.expires_at>NOW() ORDER BY s.id DESC LIMIT 100');res.json(rows.map(s=>({...s,user:publicUser({id:s.user_id,username:s.username,display_name:s.display_name})})))});
+app.post('/api/stories',auth,async(req,res)=>{const caption=String(req.body.caption||'').trim().slice(0,500),image=req.body.image;if(!imageOk(image))return res.status(400).json({error:'Ảnh Story không hợp lệ hoặc quá lớn.'});const [r]=await pool.execute('INSERT INTO stories(user_id,caption,image_data,expires_at) VALUES(?,?,?,DATE_ADD(NOW(),INTERVAL 24 HOUR))',[req.user.id,caption,image]);res.status(201).json({id:r.insertId,expiresInHours:24})});
+app.post('/api/posts/:id/like',auth,async(req,res)=>{const id=Number(req.params.id),[found]=await pool.execute('SELECT id FROM posts WHERE id=?',[id]);if(!found.length)return res.status(404).json({error:'Không tìm thấy bài viết.'});const [liked]=await pool.execute('SELECT id FROM post_likes WHERE post_id=? AND user_id=?',[id,req.user.id]);if(liked.length)await pool.execute('DELETE FROM post_likes WHERE post_id=? AND user_id=?',[id,req.user.id]);else await pool.execute('INSERT INTO post_likes(post_id,user_id) VALUES(?,?)',[id,req.user.id]);const [[count]]=await pool.execute('SELECT COUNT(*) count FROM post_likes WHERE post_id=?',[id]);res.json({liked:!liked.length,likes:Number(count.count)})});
+app.get('/api/posts/:id/comments',auth,async(req,res)=>{const [rows]=await pool.execute('SELECT c.id,c.post_id,c.user_id,c.body,c.created_at,u.username,u.display_name FROM post_comments c JOIN users u ON u.id=c.user_id WHERE c.post_id=? ORDER BY c.id ASC LIMIT 200',[Number(req.params.id)]);res.json(rows.map(c=>({...c,user:publicUser({id:c.user_id,username:c.username,display_name:c.display_name})})))});
+app.post('/api/posts/:id/comments',auth,async(req,res)=>{const body=String(req.body.body||'').trim();if(!body||body.length>1000)return res.status(400).json({error:'Bình luận phải có 1–1000 ký tự.'});const id=Number(req.params.id),[found]=await pool.execute('SELECT id FROM posts WHERE id=?',[id]);if(!found.length)return res.status(404).json({error:'Không tìm thấy bài viết.'});const [r]=await pool.execute('INSERT INTO post_comments(post_id,user_id,body) VALUES(?,?,?)',[id,req.user.id,body]);res.status(201).json({id:r.insertId,body})});
+io.use((s,next)=>{try{s.user=jwt.verify(s.handshake.auth?.token||'',secret);next()}catch{next(new Error('Unauthorized'))}});io.on('connection',s=>s.join('user:'+s.user.id));
+app.use((err,_req,res,_next)=>{console.error(err);res.status(500).json({error:'Lỗi máy chủ.'})});server.listen(Number(process.env.PORT||3000),'0.0.0.0',()=>console.log('XiaoFan listening'));
